@@ -310,25 +310,25 @@ int main() {
     CubeGraph g(500);
 
     std::cout << "Data generated." << std::endl;
-//    std::cout << "Verifying correctness:" << std::endl;
-//    {
-//        auto fakeRes = g.computeDistancesToOrigin();
-//        {
-//            auto serialRes = bfs(g, 0);
-//            std::cout << "Serial version correct: " << std::boolalpha << (serialRes == fakeRes) << std::endl;
-//        }
-//        {
-//            auto parallelRes = parallelBfs(g, 0);
-//            std::cout << "Parallel version correct: " << std::boolalpha << (parallelRes == fakeRes) << std::endl;
-//        }
-//    }
+    std::cout << "Verifying correctness:" << std::endl;
+    {
+        auto fakeRes = g.computeDistancesToOrigin();
+        {
+            auto serialRes = bfs(g, 0);
+            std::cout << "Serial version correct: " << std::boolalpha << (serialRes == fakeRes) << std::endl;
+        }
+        {
+            auto parallelRes = parallelBfs(g, 0);
+            std::cout << "Parallel version correct: " << std::boolalpha << (parallelRes == fakeRes) << std::endl;
+        }
+    }
 
     std::cout << "Running serial version:" << std::endl;
-    std::cout << "Serial: " << time(1, [](const CubeGraph& g) {
+    std::cout << "Serial: " << time(5, [](const CubeGraph& g) {
         return bfs(g, 0);
     }, g) << std::endl;
     std::cout << "Running parallel version:" << std::endl;
-    std::cout << "Parallel: " << time(3, [](const CubeGraph& g) {
+    std::cout << "Parallel: " << time(5, [](const CubeGraph& g) {
         return parallelBfs(g, 0);
     }, g) << std::endl;
     return 0;
