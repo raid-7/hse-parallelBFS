@@ -99,7 +99,14 @@ public:
 
     std::vector<int> adjacent(int i) const {
         std::vector<int> res;
-        res.reserve(6);
+        res.resize(6);
+        size_t sz = adjacent(i, res.data());
+        res.resize(sz);
+        return res;
+    }
+
+    inline size_t adjacent(int i, int* out) const {
+        size_t cnt = 0;
         Vertex v = fromInt(i);
         for (int* p : std::array{&v.x, &v.y, &v.z}) {
             for (int diff : std::array{-1, +1}) {
@@ -107,11 +114,11 @@ public:
                 Vertex u = v;
                 *p -= diff;
                 if (isValid(u)) {
-                    res.push_back(toInt(u));
+                    out[cnt++] = toInt(u);
                 }
             }
         }
-        return res;
+        return cnt;
     }
 
     size_t adjacentCount(int i) const {
@@ -184,19 +191,19 @@ void doParallelPrefixSum(FIn in, size_t size, std::vector<size_t>& out) {
 }
 
 
-template <class FIn>
+template <size_t limit = 0x2000, class FIn>
 void prefixSum(FIn in, size_t size, std::vector<size_t>& out) {
     out.resize(size + 1);
     out[0] = 0;
 
-    if (size < 25'000) {
+    if (size < limit) {
         doSerialPrefixSum(in, size, out);
     } else {
         doParallelPrefixSum(in, size, out);
     }
 }
 
-template <size_t limit = 25'000, class Func>
+template <size_t limit = 2048, class Func>
 void maybeParallelFor(size_t size, Func func) {
     if (size < limit) {
         for (size_t i = 0; i < size; ++i)
@@ -204,6 +211,14 @@ void maybeParallelFor(size_t size, Func func) {
     } else {
         tbb::parallel_for(size_t(0), size, func);
     }
+}
+
+template <class T>
+inline void extendVector(std::vector<T>& vec, size_t minSize, T val) {
+    size_t old = vec.size();
+    if (old < minSize)
+        vec.reserve(std::max(minSize, old * 2));
+    vec.resize(minSize, val);
 }
 
 /*
@@ -216,7 +231,7 @@ void maybeParallelFor(size_t size, Func func) {
 template <class Graph>
 std::vector<size_t> parallelBfs(const Graph& g, int startVertex) {
     struct Mark {
-        alignas(8) std::atomic<bool> value{false};
+        std::atomic<bool> value{false};
 
         bool reserve() {
             return !value.exchange(true);
@@ -228,6 +243,7 @@ std::vector<size_t> parallelBfs(const Graph& g, int startVertex) {
     std::vector<size_t> result(g.count() /*, std::numeric_limits<size_t>::max() */);
     std::vector<int> frontier = {startVertex};
     std::vector<int> newFrontier = {};
+    std::vector<int> adjacents;
     std::vector<size_t> degPrefSum;
     size_t dist = 0;
 
@@ -237,16 +253,18 @@ std::vector<size_t> parallelBfs(const Graph& g, int startVertex) {
             return v < 0 ? 0 : g.adjacentCount(v);
         }, frontier.size(), degPrefSum);
 
-        newFrontier.resize(degPrefSum.back(), -1);
+        extendVector(newFrontier, degPrefSum.back(), -1);
+        extendVector(adjacents, degPrefSum.back(), -1);
 
-        maybeParallelFor<512>(frontier.size(), [&](size_t i) {
+        maybeParallelFor<2048>(frontier.size(), [&](size_t i) {
             int v = frontier[i];
             if (v < 0)
                 return;
             size_t offset = degPrefSum[i];
-            const auto& adjacent = g.adjacent(v);
-            maybeParallelFor(adjacent.size(), [&](size_t j) {
-                int u = adjacent[j];
+            int* adjacentStart = &adjacents[degPrefSum[i]];
+            size_t adjacentCount = g.adjacent(v, adjacentStart);
+            maybeParallelFor(adjacentCount, [&](size_t j) {
+                int u = adjacentStart[j];
                 if (marks[u].reserve())
                     newFrontier[offset + j] = u;
             });
@@ -264,13 +282,17 @@ std::vector<size_t> parallelBfs(const Graph& g, int startVertex) {
 template <class Graph>
 std::vector<size_t> bfs(const Graph& g, int startVertex) {
     std::deque<int> queue = {startVertex};
+    std::vector<int> adjacent;
     std::vector<size_t> result(g.count(), std::numeric_limits<size_t>::max());
     result[startVertex] = 0;
     while (!queue.empty()) {
         int v = queue.front();
         queue.pop_front();
         size_t d = result[v];
-        for (int u : g.adjacent(v)) {
+        adjacent.resize(g.adjacentCount(v));
+        size_t sz = g.adjacent(v, adjacent.data());
+        adjacent.resize(sz);
+        for (int u : adjacent) {
             if (d + 1 < result[u]) {
                 result[u] = d + 1;
                 queue.push_back(u);
@@ -301,10 +323,10 @@ int main() {
 //        }
 //    }
 
-//    std::cout << "Running serial version:" << std::endl;
-//    std::cout << "Serial: " << time(3, [](const CubeGraph& g) {
-//        return bfs(g, 0);
-//    }, g) << std::endl;
+    std::cout << "Running serial version:" << std::endl;
+    std::cout << "Serial: " << time(1, [](const CubeGraph& g) {
+        return bfs(g, 0);
+    }, g) << std::endl;
     std::cout << "Running parallel version:" << std::endl;
     std::cout << "Parallel: " << time(3, [](const CubeGraph& g) {
         return parallelBfs(g, 0);
